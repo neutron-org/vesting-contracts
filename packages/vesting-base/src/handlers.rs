@@ -1,3 +1,5 @@
+use crate::asset::{addr_opt_validate, token_asset_info, AssetInfo, AssetInfoExt};
+use crate::common::{claim_ownership, drop_ownership_proposal, propose_new_owner};
 use crate::error::ContractError;
 use crate::ext_historical::{handle_execute_historical_msg, handle_query_historical_msg};
 use crate::ext_managed::{handle_execute_managed_msg, handle_query_managed_msg};
@@ -9,8 +11,6 @@ use crate::types::{
     Config, OrderBy, VestingAccount, VestingAccountResponse, VestingAccountsResponse, VestingInfo,
     VestingSchedule, VestingState,
 };
-use astroport::asset::{addr_opt_validate, token_asset_info, AssetInfo, AssetInfoExt};
-use astroport::common::{claim_ownership, drop_ownership_proposal, propose_new_owner};
 use cosmwasm_std::{
     attr, from_json, to_json_binary, Addr, Binary, Deps, DepsMut, Env, MessageInfo, Response,
     StdError, StdResult, Storage, SubMsg, Uint128,

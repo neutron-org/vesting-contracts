@@ -1,5 +1,5 @@
+use crate::common::OwnershipProposal;
 use crate::types::{Config, OrderBy, VestingInfo, VestingState};
-use astroport::common::OwnershipProposal;
 use cosmwasm_std::{Addr, Deps, StdResult};
 use cw_storage_plus::{Bound, Item, Map, SnapshotItem, SnapshotMap, Strategy};
 
@@ -31,19 +31,22 @@ pub(crate) const VESTING_INFO_HISTORICAL: SnapshotMap<Addr, VestingInfo> = Snaps
     Strategy::EveryBlock,
 );
 
-pub fn vesting_state(historical: bool) -> SnapshotItem<'static, VestingState> {
+pub fn vesting_state(historical: bool) -> SnapshotItem<VestingState> {
     if historical {
         return VESTING_STATE_HISTORICAL;
     }
     VESTING_STATE
 }
 
-pub fn vesting_info(historical: bool) -> SnapshotMap<'static, Addr, VestingInfo> {
+pub fn vesting_info(historical: bool) -> SnapshotMap<Addr, VestingInfo> {
     if historical {
         return VESTING_INFO_HISTORICAL;
     }
     VESTING_INFO
 }
+
+/// The first key is denom, the second key is a precision.
+pub const COINS_INFO: Map<String, u8> = Map::new("coins_info");
 
 const MAX_LIMIT: u32 = 30;
 const DEFAULT_LIMIT: u32 = 10;

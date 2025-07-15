@@ -1,3 +1,4 @@
+use crate::asset::token_asset_info;
 use crate::builder::VestingBaseBuilder;
 use crate::error::{ext_unsupported_err, ContractError};
 use crate::handlers::{execute, query};
@@ -5,27 +6,30 @@ use crate::msg::{
     ExecuteMsg, ExecuteMsgManaged, QueryMsg, QueryMsgHistorical, QueryMsgWithManagers,
 };
 use crate::types::{Config, Extensions};
-use astroport::asset::token_asset_info;
-use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
+use cosmwasm_std::testing::{message_info, mock_dependencies, mock_env};
 use cosmwasm_std::{from_json, Addr};
 
 #[test]
 fn set_vesting_token() {
     let mut deps = mock_dependencies();
-    let owner = String::from("owner");
-    let token_info_manager = "token_info_manager";
+    let owner = deps.api.addr_make("owner");
+    let token_info_manager = deps.api.addr_make("token_info_manager");
     let env = mock_env();
     VestingBaseBuilder::default()
-        .build(deps.as_mut(), owner, String::from(token_info_manager))
+        .build(
+            deps.as_mut(),
+            owner.to_string(),
+            token_info_manager.to_string(),
+        )
         .unwrap();
 
-    // check initialisation
+    // check initialization
     assert_eq!(
         from_json::<Config>(&query(deps.as_ref(), env.clone(), QueryMsg::Config {}).unwrap())
             .unwrap(),
         Config {
-            owner: Addr::unchecked("owner"),
-            token_info_manager: Addr::unchecked(token_info_manager),
+            owner: owner.clone(),
+            token_info_manager: token_info_manager.clone(),
             vesting_token: None,
             extensions: Extensions {
                 historical: false,
@@ -35,7 +39,8 @@ fn set_vesting_token() {
         }
     );
 
-    let info = mock_info("stranger", &[]);
+    let info = message_info(&Addr::unchecked("stranger"), &[]);
+    let ntrn_token = deps.api.addr_make("ntrn_token");
     // set vesting token by a stranger -> Unauthorized
     assert_eq!(
         execute(
@@ -43,7 +48,7 @@ fn set_vesting_token() {
             env.clone(),
             info,
             ExecuteMsg::SetVestingToken {
-                vesting_token: token_asset_info(Addr::unchecked("ntrn_token")),
+                vesting_token: token_asset_info(ntrn_token.clone()),
             },
         )
         .unwrap_err(),
@@ -51,13 +56,13 @@ fn set_vesting_token() {
     );
 
     // set vesting token by the manager -> Success
-    let info = mock_info("token_info_manager", &[]);
+    let info = message_info(&token_info_manager, &[]);
     execute(
         deps.as_mut(),
         env.clone(),
-        info.clone(),
+        info,
         ExecuteMsg::SetVestingToken {
-            vesting_token: token_asset_info(Addr::unchecked("ntrn_token")),
+            vesting_token: token_asset_info(ntrn_token.clone()),
         },
     )
     .unwrap();
@@ -66,9 +71,9 @@ fn set_vesting_token() {
         from_json::<Config>(&query(deps.as_ref(), env.clone(), QueryMsg::Config {}).unwrap())
             .unwrap(),
         Config {
-            owner: Addr::unchecked("owner"),
-            token_info_manager: Addr::unchecked(token_info_manager),
-            vesting_token: Some(token_asset_info(Addr::unchecked("ntrn_token"))),
+            owner: owner.clone(),
+            token_info_manager: token_info_manager.clone(),
+            vesting_token: Some(token_asset_info(ntrn_token.clone())),
             extensions: Extensions {
                 historical: false,
                 managed: false,
@@ -77,6 +82,8 @@ fn set_vesting_token() {
         }
     );
 
+    let info = message_info(&owner, &[]);
+    let not_ntrn_token = deps.api.addr_make("not_ntrn_token");
     // set vesting token second time by the owner -> VestingTokenAlreadySet
     assert_eq!(
         execute(
@@ -84,7 +91,7 @@ fn set_vesting_token() {
             env.clone(),
             info,
             ExecuteMsg::SetVestingToken {
-                vesting_token: token_asset_info(Addr::unchecked("not_a_ntrn_token")),
+                vesting_token: token_asset_info(not_ntrn_token),
             },
         )
         .unwrap_err(),
@@ -94,9 +101,9 @@ fn set_vesting_token() {
     assert_eq!(
         from_json::<Config>(&query(deps.as_ref(), env, QueryMsg::Config {}).unwrap()).unwrap(),
         Config {
-            owner: Addr::unchecked("owner"),
-            token_info_manager: Addr::unchecked(token_info_manager),
-            vesting_token: Some(token_asset_info(Addr::unchecked("ntrn_token"))),
+            owner: owner,
+            token_info_manager: token_info_manager,
+            vesting_token: Some(token_asset_info(ntrn_token)),
             extensions: Extensions {
                 historical: false,
                 managed: false,
@@ -109,21 +116,25 @@ fn set_vesting_token() {
 #[test]
 fn proper_building_standard() {
     let mut deps = mock_dependencies();
-    let owner = String::from("owner");
-    let token_info_manager = "token_info_manager";
+    let owner = deps.api.addr_make("owner");
+    let token_info_manager = deps.api.addr_make("token_info_manager");
     let env = mock_env();
-    let info = mock_info("owner", &[]);
+    let info = message_info(&owner, &[]);
     VestingBaseBuilder::default()
-        .build(deps.as_mut(), owner, String::from(token_info_manager))
+        .build(
+            deps.as_mut(),
+            owner.to_string(),
+            token_info_manager.to_string(),
+        )
         .unwrap();
 
-    // check initialisation
+    // check initialization
     assert_eq!(
         from_json::<Config>(&query(deps.as_ref(), env.clone(), QueryMsg::Config {}).unwrap())
             .unwrap(),
         Config {
-            owner: Addr::unchecked("owner"),
-            token_info_manager: Addr::unchecked(token_info_manager),
+            owner: owner,
+            token_info_manager: token_info_manager,
             vesting_token: None,
             extensions: Extensions {
                 historical: false,
@@ -180,23 +191,30 @@ fn proper_building_standard() {
 #[test]
 fn proper_building_managers() {
     let mut deps = mock_dependencies();
-    let owner = String::from("owner");
-    let token_info_manager = "token_info_manager";
+    let owner = deps.api.addr_make("owner");
+    let token_info_manager = deps.api.addr_make("token_info_manager");
     let env = mock_env();
-    let info = mock_info("owner", &[]);
-    let vesting_managers = vec!["manager1".to_string(), "manager2".to_string()];
+    let info = message_info(&owner, &[]);
+    let vesting_managers = vec![
+        deps.api.addr_make("manager1").into_string(),
+        deps.api.addr_make("manager2").into_string(),
+    ];
     VestingBaseBuilder::default()
         .with_managers(vesting_managers.clone())
-        .build(deps.as_mut(), owner, String::from(token_info_manager))
+        .build(
+            deps.as_mut(),
+            owner.to_string(),
+            token_info_manager.to_string(),
+        )
         .unwrap();
 
-    // check initialisation
+    // check initialization
     assert_eq!(
         from_json::<Config>(&query(deps.as_ref(), env.clone(), QueryMsg::Config {}).unwrap())
             .unwrap(),
         Config {
-            owner: Addr::unchecked("owner"),
-            token_info_manager: Addr::unchecked(token_info_manager),
+            owner: owner,
+            token_info_manager: token_info_manager,
             vesting_token: None,
             extensions: Extensions {
                 historical: false,
@@ -256,22 +274,26 @@ fn proper_building_managers() {
 #[test]
 fn proper_building_historical() {
     let mut deps = mock_dependencies();
-    let owner = String::from("owner");
-    let token_info_manager = "token_info_manager";
+    let owner = deps.api.addr_make("owner");
+    let token_info_manager = deps.api.addr_make("token_info_manager");
     let env = mock_env();
-    let info = mock_info("owner", &[]);
+    let info = message_info(&owner, &[]);
     VestingBaseBuilder::default()
         .historical()
-        .build(deps.as_mut(), owner, String::from(token_info_manager))
+        .build(
+            deps.as_mut(),
+            owner.to_string(),
+            token_info_manager.to_string(),
+        )
         .unwrap();
 
-    // check initialisation
+    // check initialization
     assert_eq!(
         from_json::<Config>(&query(deps.as_ref(), env.clone(), QueryMsg::Config {}).unwrap())
             .unwrap(),
         Config {
-            owner: Addr::unchecked("owner"),
-            token_info_manager: Addr::unchecked(token_info_manager),
+            owner: owner,
+            token_info_manager: token_info_manager,
             vesting_token: None,
             extensions: Extensions {
                 historical: true,
@@ -325,21 +347,25 @@ fn proper_building_historical() {
 #[test]
 fn proper_building_managed() {
     let mut deps = mock_dependencies();
-    let owner = String::from("owner");
-    let token_info_manager = "token_info_manager";
+    let owner = deps.api.addr_make("owner");
+    let token_info_manager = deps.api.addr_make("token_info_manager");
     let env = mock_env();
     VestingBaseBuilder::default()
         .managed()
-        .build(deps.as_mut(), owner, String::from(token_info_manager))
+        .build(
+            deps.as_mut(),
+            owner.to_string(),
+            token_info_manager.to_string(),
+        )
         .unwrap();
 
-    // check initialisation and set vesting token
+    // check initialization and set vesting token
     assert_eq!(
         from_json::<Config>(&query(deps.as_ref(), env.clone(), QueryMsg::Config {}).unwrap())
             .unwrap(),
         Config {
-            owner: Addr::unchecked("owner"),
-            token_info_manager: Addr::unchecked(token_info_manager),
+            owner: owner.clone(),
+            token_info_manager: token_info_manager.clone(),
             vesting_token: None,
             extensions: Extensions {
                 historical: false,
@@ -348,13 +374,15 @@ fn proper_building_managed() {
             }
         }
     );
-    let info = mock_info("token_info_manager", &[]);
+
+    let info = message_info(&token_info_manager, &[]);
+    let ntrn_token = deps.api.addr_make("ntrn_token");
     execute(
         deps.as_mut(),
         env.clone(),
         info,
         ExecuteMsg::SetVestingToken {
-            vesting_token: token_asset_info(Addr::unchecked("ntrn_token")),
+            vesting_token: token_asset_info(ntrn_token),
         },
     )
     .unwrap();
@@ -385,8 +413,9 @@ fn proper_building_managed() {
         ext_unsupported_err("historical")
     );
 
+    let info = message_info(&owner, &[]);
+    let clawback = deps.api.addr_make("ntrn_token").into_string();
     // make sure managed extension is enabled
-    let info = mock_info("owner", &[]);
     execute(
         deps.as_mut(),
         env,
@@ -394,7 +423,7 @@ fn proper_building_managed() {
         ExecuteMsg::ManagedExtension {
             msg: ExecuteMsgManaged::RemoveVestingAccounts {
                 vesting_accounts: vec![],
-                clawback_account: String::from("clawback"),
+                clawback_account: clawback,
             },
         },
     )
@@ -404,24 +433,31 @@ fn proper_building_managed() {
 #[test]
 fn proper_building_all_extensions() {
     let mut deps = mock_dependencies();
-    let owner = String::from("owner");
-    let token_info_manager = "token_info_manager";
+    let owner = deps.api.addr_make("owner");
+    let token_info_manager = deps.api.addr_make("token_info_manager");
     let env = mock_env();
-    let vesting_managers = vec!["manager1".to_string(), "manager2".to_string()];
+    let vesting_managers = vec![
+        deps.api.addr_make("manager1").into_string(),
+        deps.api.addr_make("manager2").into_string(),
+    ];
     VestingBaseBuilder::default()
         .historical()
         .managed()
         .with_managers(vesting_managers.clone())
-        .build(deps.as_mut(), owner, String::from(token_info_manager))
+        .build(
+            deps.as_mut(),
+            owner.to_string(),
+            token_info_manager.to_string(),
+        )
         .unwrap();
 
-    // check initialisation and set vesting token
+    // check initialization and set vesting token
     assert_eq!(
         from_json::<Config>(&query(deps.as_ref(), env.clone(), QueryMsg::Config {}).unwrap())
             .unwrap(),
         Config {
-            owner: Addr::unchecked("owner"),
-            token_info_manager: Addr::unchecked(token_info_manager),
+            owner: owner.clone(),
+            token_info_manager: token_info_manager.clone(),
             vesting_token: None,
             extensions: Extensions {
                 historical: true,
@@ -430,13 +466,15 @@ fn proper_building_all_extensions() {
             }
         }
     );
-    let info = mock_info("token_info_manager", &[]);
+
+    let info = message_info(&token_info_manager, &[]);
+    let ntrn_token = deps.api.addr_make("ntrn_token");
     execute(
         deps.as_mut(),
         env.clone(),
         info,
         ExecuteMsg::SetVestingToken {
-            vesting_token: token_asset_info(Addr::unchecked("ntrn_token")),
+            vesting_token: token_asset_info(ntrn_token),
         },
     )
     .unwrap();
@@ -468,7 +506,8 @@ fn proper_building_all_extensions() {
     .unwrap();
 
     // make sure managed extension is enabled
-    let info = mock_info("owner", &[]);
+    let info = message_info(&owner, &[]);
+    let clawback = deps.api.addr_make("ntrn_token").into_string();
     execute(
         deps.as_mut(),
         env,
@@ -476,7 +515,7 @@ fn proper_building_all_extensions() {
         ExecuteMsg::ManagedExtension {
             msg: ExecuteMsgManaged::RemoveVestingAccounts {
                 vesting_accounts: vec![],
-                clawback_account: String::from("clawback"),
+                clawback_account: clawback,
             },
         },
     )

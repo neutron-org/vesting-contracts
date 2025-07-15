@@ -1,4 +1,4 @@
-use astroport::asset::AssetInfo;
+use crate::asset::AssetInfo;
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Order, Uint128};
 

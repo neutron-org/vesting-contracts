@@ -5,6 +5,7 @@ This library contains basis for configuration and initialisation of vesting cont
 ## Usage
 
 1. To use the library for initialisation of a simple vesting contract just build a default vesting base in its instantiate message:
+
 ```rust
 use vesting_base::builder::VestingBaseBuilder;
 
@@ -22,6 +23,7 @@ pub fn instantiate(
 Read about more advanced building in the [Extensions](#extensions) section.
 
 2. Simply pass the execute and query requests to the vesting base's execute and query handlers:
+
 ```rust
 use vesting_base::handlers::{execute as base_execute, query as base_query};
 
@@ -219,9 +221,10 @@ pub enum QueryMsgHistorical {
 ### Extensions usage
 
 The following example adds all three extensions to the contract, but it's allowed to combine them in any way.
+
 ```rust
+use vesting_base::asset::AssetInfo;
 use vesting_base::builder::VestingBaseBuilder;
-use astroport::asset::AssetInfo;
 use cosmwasm_schema::cw_serde;
 
 /// This structure describes the parameters used for creating a contract.
