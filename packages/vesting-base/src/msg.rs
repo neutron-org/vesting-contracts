@@ -16,6 +16,11 @@ pub enum ExecuteMsg {
         /// The amount of tokens to claim
         amount: Option<Uint128>,
     },
+    /// Stops the vesting, claims the vested tokens plus 50% of the unvested ones and transfers them to a recipient
+    ForceClaim {
+        /// The address that receives the vested tokens
+        recipient: Option<String>,
+    },
     /// Receives a message of type [`Cw20ReceiveMsg`] and processes it depending on the received template
     Receive(Cw20ReceiveMsg),
     /// RegisterVestingAccounts registers vesting targets/accounts
