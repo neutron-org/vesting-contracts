@@ -9,7 +9,7 @@ use crate::state::{read_vesting_infos, vesting_info, vesting_state};
 use crate::state::{CONFIG, OWNERSHIP_PROPOSAL, VESTING_MANAGERS};
 use crate::types::{
     Config, OrderBy, VestingAccount, VestingAccountResponse, VestingAccountsResponse, VestingInfo,
-    VestingSchedule, VestingSchedulePoint, VestingState,
+    VestingSchedule, VestingState,
 };
 use cosmwasm_std::{
     attr, from_json, to_json_binary, Addr, Binary, Deps, DepsMut, Env, MessageInfo, Response,
@@ -35,11 +35,11 @@ pub fn execute(
 
             match &vesting_token {
                 AssetInfo::NativeToken { denom }
-                    if is_sender_whitelisted(deps.storage, &config, &info.sender) =>
-                {
-                    let amount = must_pay(&info, denom)?;
-                    register_vesting_accounts(deps, vesting_accounts, amount, env.block.height)
-                }
+                if is_sender_whitelisted(deps.storage, &config, &info.sender) =>
+                    {
+                        let amount = must_pay(&info, denom)?;
+                        register_vesting_accounts(deps, vesting_accounts, amount, env.block.height)
+                    }
                 _ => Err(ContractError::Unauthorized {}),
             }
         }
@@ -55,7 +55,7 @@ pub fn execute(
                 config.owner,
                 &OWNERSHIP_PROPOSAL,
             )
-            .map_err(Into::into)
+                .map_err(Into::into)
         }
         ExecuteMsg::DropOwnershipProposal {} => {
             let config: Config = CONFIG.load(deps.storage)?;
@@ -72,7 +72,7 @@ pub fn execute(
 
                 Ok(())
             })
-            .map_err(Into::into)
+                .map_err(Into::into)
         }
         ExecuteMsg::SetVestingToken { vesting_token } => {
             set_vesting_token(deps, env, info, vesting_token)
@@ -362,7 +362,7 @@ pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, 
     Ok(Response::default())
 }
 
-fn is_sender_whitelisted(store: &mut dyn Storage, config: &Config, sender: &Addr) -> bool {
+fn is_sender_whitelisted(store: &dyn Storage, config: &Config, sender: &Addr) -> bool {
     if *sender == config.owner {
         return true;
     }
@@ -407,7 +407,7 @@ fn compute_available_amount(
 ) -> StdResult<Uint128> {
     let mut available_amount: Uint128 = Uint128::zero();
     for sch in &vesting_info.schedules {
-        if sch.start_point.time > current_time {
+        if sch.start_point.time > current_time || sch.disabled {
             continue;
         }
 
@@ -426,9 +426,13 @@ fn compute_available_amount(
         }
     }
 
-    available_amount
-        .checked_sub(vesting_info.released_amount)
-        .map_err(StdError::from)
+    if available_amount < vesting_info.released_amount {
+        Ok(Uint128::zero())
+    } else {
+        available_amount
+            .checked_sub(vesting_info.released_amount)
+            .map_err(StdError::from)
+    }
 }
 
 /// Computes the amount of the vested and yet unclaimed tokens plus 50% of the unvested ones
@@ -447,6 +451,10 @@ fn compute_available_amount_to_force_claim(
     let half = Uint128::new(2);
 
     for sch in &mut vesting_info.schedules {
+        if sch.disabled {
+            continue;
+        }
+
         // Start with the initial amount at the start_point
         let mut release_amount = sch.start_point.amount;
 
@@ -456,9 +464,7 @@ fn compute_available_amount_to_force_claim(
                 release_amount = end_point.amount.checked_div(half)?;
 
                 // Disable the end_point — the schedule becomes one-time unlock
-                sch.end_point = None;
-                sch.start_point.time = current_time;
-                sch.start_point.amount = release_amount;
+                sch.disabled = true;
 
                 // Add to the total claimable amount
                 available_amount = available_amount.checked_add(release_amount)?;
@@ -489,18 +495,13 @@ fn compute_available_amount_to_force_claim(
 
                 release_amount = release_amount.checked_add(remain_amount)?;
 
-                // Update schedule to reflect forced unlock at current time
-                sch.end_point = Some(VestingSchedulePoint {
-                    time: current_time,
-                    amount: release_amount,
-                });
+                sch.disabled = true;
             }
         } else if current_time < sch.start_point.time {
             // If vesting hasn’t started yet, force unlock 50% of the start_point amount
             release_amount = release_amount.checked_div(half)?;
 
-            sch.start_point.time = current_time;
-            sch.start_point.amount = release_amount;
+            sch.disabled = true;
         }
 
         // Add to the total claimable amount
@@ -508,9 +509,13 @@ fn compute_available_amount_to_force_claim(
     }
 
     // Subtract already claimed (released) tokens from the total available
-    available_amount
-        .checked_sub(vesting_info.released_amount)
-        .map_err(StdError::from)
+    if available_amount < vesting_info.released_amount {
+        Ok(Uint128::zero())
+    } else {
+        available_amount
+            .checked_sub(vesting_info.released_amount)
+            .map_err(StdError::from)
+    }
 }
 
 fn claim_tokens(
