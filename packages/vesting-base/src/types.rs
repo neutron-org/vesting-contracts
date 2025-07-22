@@ -61,6 +61,8 @@ pub struct VestingSchedule {
     pub start_point: VestingSchedulePoint,
     /// The end point for the vesting schedule
     pub end_point: Option<VestingSchedulePoint>,
+    /// Is the schedule disabled (cannot be claimed by a user) or not
+    pub disabled: bool,
 }
 
 /// This structure stores the parameters used to create a vesting schedule.

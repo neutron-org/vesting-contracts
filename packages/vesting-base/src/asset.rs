@@ -114,7 +114,7 @@ impl Asset {
 /// ## Examples
 /// ```
 /// # use cosmwasm_std::Addr;
-/// # use crate::asset::AssetInfo::{NativeToken, Token};
+/// # use vesting_base::asset::AssetInfo::{NativeToken, Token};
 /// Token { contract_addr: Addr::unchecked("stake...") };
 /// NativeToken { denom: String::from("uluna") };
 /// ```
