@@ -45,9 +45,6 @@ pub fn vesting_info(historical: bool) -> SnapshotMap<Addr, VestingInfo> {
     VESTING_INFO
 }
 
-/// The first key is denom, the second key is a precision.
-pub const COINS_INFO: Map<String, u8> = Map::new("coins_info");
-
 const MAX_LIMIT: u32 = 30;
 const DEFAULT_LIMIT: u32 = 10;
 
@@ -117,7 +114,7 @@ mod testing {
             None,
             Some(OrderBy::Asc),
         )
-        .unwrap();
+            .unwrap();
         assert_eq!(
             res,
             vec![
@@ -132,7 +129,7 @@ mod testing {
             Some(1),
             Some(OrderBy::Asc),
         )
-        .unwrap();
+            .unwrap();
         assert_eq!(res, vec![(Addr::unchecked("address3"), vi_mock.clone())]);
 
         let res = read_vesting_infos(
@@ -141,7 +138,7 @@ mod testing {
             None,
             Some(OrderBy::Desc),
         )
-        .unwrap();
+            .unwrap();
         assert_eq!(
             res,
             vec![
@@ -156,7 +153,7 @@ mod testing {
             Some(1),
             Some(OrderBy::Desc),
         )
-        .unwrap();
+            .unwrap();
         assert_eq!(res, vec![(Addr::unchecked("address2"), vi_mock.clone())]);
     }
 }
