@@ -2675,6 +2675,50 @@ fn test_force_claim_tokens_multiple_schedules() {
     let vesting_accounts = vec![VestingAccount {
         address: user1.to_string(),
         schedules: vec![create_vesting_schedule(
+            env.block.time.seconds() + 50,
+            Uint128::new(0),
+            Some(env.block.time.seconds() + 100),
+            Some(amount),
+        )],
+    }];
+
+    let info = message_info(&vesting_token, &[]);
+    let cw20_msg = Cw20ReceiveMsg {
+        sender: owner.to_string(),
+        amount,
+        msg: to_json_binary(&Cw20HookMsg::RegisterVestingAccounts { vesting_accounts }).unwrap(),
+    };
+
+    execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        ExecuteMsg::Receive(cw20_msg),
+    )
+        .unwrap();
+
+    // Force claim tokens before the start of a schedule
+    let info = message_info(&user1, &[]);
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info.clone(),
+        ExecuteMsg::ForceClaim { recipient: None },
+    )
+        .unwrap();
+
+    assert_eq!(res.attributes[0].key, "action");
+    assert_eq!(res.attributes[0].value, "force_claim");
+    assert_eq!(res.attributes[1].key, "address");
+    assert_eq!(res.attributes[1].value, user1.to_string());
+    assert_eq!(res.attributes[3].key, "claimed_amount");
+    assert_eq!(res.attributes[3].value, "50");
+
+
+    // Register vesting account with future vesting
+    let vesting_accounts = vec![VestingAccount {
+        address: user1.to_string(),
+        schedules: vec![create_vesting_schedule(
             env.block.time.seconds(),
             Uint128::new(0),
             Some(env.block.time.seconds() + 100),
@@ -2928,7 +2972,7 @@ fn test_force_claim_tokens_multiple_schedules() {
             let transfer_msg: Cw20ExecuteMsg = from_json(msg).unwrap();
             match transfer_msg {
                 Cw20ExecuteMsg::Transfer { amount, recipient } => {
-                    assert_eq!(amount, Uint128::new(58)); // 58 - the remaining of the users vesting
+                    assert_eq!(amount, Uint128::new(108)); // 108 - the remaining of the users vesting
                     assert_eq!(recipient, clawback_account.to_string());
                 }
                 _ => panic!("Expected Transfer message"),
