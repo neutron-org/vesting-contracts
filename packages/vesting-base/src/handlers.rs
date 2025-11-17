@@ -428,13 +428,9 @@ fn compute_available_amount(
         }
     }
 
-    if available_amount < vesting_info.released_amount {
-        Ok(Uint128::zero())
-    } else {
-        available_amount
-            .checked_sub(vesting_info.released_amount)
-            .map_err(StdError::from)
-    }
+    available_amount
+        .checked_sub(vesting_info.released_amount)
+        .map_err(StdError::from)
 }
 
 /// Computes the amount of the vested and yet unclaimed tokens plus 50% of the unvested ones
@@ -519,13 +515,9 @@ fn compute_available_amount_to_force_claim(
     }
 
     // Subtract already claimed (released) tokens from the total available
-    if available_amount < vesting_info.released_amount {
-        Ok(Uint128::zero())
-    } else {
-        available_amount
-            .checked_sub(vesting_info.released_amount)
-            .map_err(StdError::from)
-    }
+    available_amount
+        .checked_sub(vesting_info.released_amount)
+        .map_err(StdError::from)
 }
 
 fn claim_tokens(
