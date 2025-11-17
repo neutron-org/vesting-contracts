@@ -7,6 +7,7 @@ use crate::msg::{
     Cw20HookMsg, ExecuteMsg, ExecuteMsgManaged, ExecuteMsgWithManagers, QueryMsg,
     QueryMsgHistorical, QueryMsgWithManagers,
 };
+use crate::state::vesting_info;
 use crate::types::{
     Config, Extensions, OrderBy, VestingAccount, VestingAccountResponse, VestingAccountsResponse,
     VestingSchedule, VestingSchedulePoint, VestingState,
@@ -2715,6 +2716,10 @@ fn test_force_claim_tokens_multiple_schedules() {
     assert_eq!(res.attributes[1].value, user1.to_string());
     assert_eq!(res.attributes[3].key, "claimed_amount");
     assert_eq!(res.attributes[3].value, "55");
+
+    let vesting_info = vesting_info(true);
+    let mut vesting_info = vesting_info.load(&deps.storage, info.sender.clone()).unwrap();
+    vesting_info.schedules[0].force_claimed = Uint128::from(55u128);
 
     // Check that some amount was claimed (should be more than normal vesting due to force claim)
     assert_eq!(res.messages.len(), 1);
