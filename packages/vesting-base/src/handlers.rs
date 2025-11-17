@@ -408,6 +408,8 @@ fn compute_available_amount(
     let mut available_amount: Uint128 = Uint128::zero();
     for sch in &vesting_info.schedules {
         if sch.start_point.time > current_time || sch.disabled {
+            // for accounting purposes, add the amount that was forced claimed (released), to make math correct
+            available_amount = available_amount.checked_add(sch.force_claimed)?;
             continue;
         }
 

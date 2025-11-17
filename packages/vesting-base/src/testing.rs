@@ -2571,6 +2571,20 @@ fn test_force_claim_tokens_and_create_another_schedule_after() {
     // Move time forward a bit but not to full vesting
     env.block.time = env.block.time.plus_seconds(200);
 
+    // User has 200 tokens to claim from newly created vesting schedule
+    let available = from_json::<Uint128>(
+        &query(
+            deps.as_ref(),
+            env.clone(),
+            QueryMsg::AvailableAmount {
+                address: user1.to_string(),
+            },
+        )
+            .unwrap(),
+    )
+        .unwrap();
+    assert_eq!(available, Uint128::from(200u128));
+
     // A user can claim tokens for newly created vesting schedule
     let info = message_info(&user1, &[]);
     let res = execute(
