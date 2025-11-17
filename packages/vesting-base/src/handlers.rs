@@ -452,6 +452,8 @@ fn compute_available_amount_to_force_claim(
 
     for sch in &mut vesting_info.schedules {
         if sch.disabled {
+            // for accounting purposes, add the amount that was forced claimed (released), to make math correct
+            available_amount = available_amount.checked_add(sch.force_claimed)?;
             continue;
         }
 
@@ -465,6 +467,7 @@ fn compute_available_amount_to_force_claim(
 
                 // Disable the end_point — the schedule becomes one-time unlock
                 sch.disabled = true;
+                sch.force_claimed = release_amount;
 
                 // Add to the total claimable amount
                 available_amount = available_amount.checked_add(release_amount)?;
@@ -496,16 +499,21 @@ fn compute_available_amount_to_force_claim(
                 release_amount = release_amount.checked_add(remain_amount)?;
 
                 sch.disabled = true;
+                sch.force_claimed = release_amount;
             }
         } else if current_time < sch.start_point.time {
             // If vesting hasn’t started yet, force unlock 50% of the start_point amount
             release_amount = release_amount.checked_div(half)?;
 
             sch.disabled = true;
+            sch.force_claimed = release_amount;
         }
 
         // Add to the total claimable amount
         available_amount = available_amount.checked_add(release_amount)?;
+        if sch.disabled {
+            sch.force_claimed = release_amount;
+        }
     }
 
     // Subtract already claimed (released) tokens from the total available

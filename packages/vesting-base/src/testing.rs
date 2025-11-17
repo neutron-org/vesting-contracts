@@ -107,6 +107,7 @@ fn create_vesting_schedule(
             None
         },
         disabled: false,
+        force_claimed: Uint128::zero(),
     }
 }
 
@@ -2442,4 +2443,181 @@ fn test_full_vesting_lifecycle() {
             .unwrap();
     assert_eq!(state.total_granted, total_amount);
     assert_eq!(state.total_released, total_amount);
+}
+
+
+#[test]
+fn test_force_claim_tokens_and_create_another_schedule_after() {
+    let (mut deps, mut env, owner, _, vesting_token) = setup_contract_with_token();
+
+    let user1 = deps.api.addr_make("user1");
+    let amount = Uint128::new(1000);
+
+    // Register vesting account with future vesting
+    let vesting_accounts = vec![VestingAccount {
+        address: user1.to_string(),
+        schedules: vec![create_vesting_schedule(
+            env.block.time.seconds(),
+            Uint128::new(0),
+            Some(env.block.time.seconds() + 1000),
+            Some(amount),
+        )],
+    }];
+
+    let info = message_info(&vesting_token, &[]);
+    let cw20_msg = Cw20ReceiveMsg {
+        sender: owner.to_string(),
+        amount,
+        msg: to_json_binary(&Cw20HookMsg::RegisterVestingAccounts { vesting_accounts }).unwrap(),
+    };
+
+    execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        ExecuteMsg::Receive(cw20_msg),
+    )
+        .unwrap();
+
+    // Move time forward a bit but not to full vesting
+    env.block.time = env.block.time.plus_seconds(200);
+
+    // Force claim tokens
+    let info = message_info(&user1, &[]);
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info.clone(),
+        ExecuteMsg::ForceClaim { recipient: None },
+    )
+        .unwrap();
+
+    assert_eq!(res.attributes[0].key, "action");
+    assert_eq!(res.attributes[0].value, "force_claim");
+    assert_eq!(res.attributes[1].key, "address");
+    assert_eq!(res.attributes[1].value, user1.to_string());
+    assert_eq!(res.attributes[3].key, "claimed_amount");
+    assert_eq!(res.attributes[3].value, "600");
+
+    // Check that some amount was claimed (should be more than normal vesting due to force claim)
+    assert_eq!(res.messages.len(), 1);
+    match &res.messages[0].msg {
+        CosmosMsg::Wasm(WasmMsg::Execute { msg, .. }) => {
+            let transfer_msg: Cw20ExecuteMsg = from_json(msg).unwrap();
+            match transfer_msg {
+                Cw20ExecuteMsg::Transfer { amount, .. } => {
+                    assert_eq!(amount, Uint128::new(600)); // 200 + 800 / 2 = 600 (available to claim + 50% of the remaining)
+                }
+                _ => panic!("Expected Transfer message"),
+            }
+        }
+        _ => panic!("Expected Wasm message"),
+    }
+
+    // User hasn't anything to claim anymore
+    let available = from_json::<Uint128>(
+        &query(
+            deps.as_ref(),
+            env.clone(),
+            QueryMsg::AvailableAmount {
+                address: user1.to_string(),
+            },
+        )
+            .unwrap(),
+    )
+        .unwrap();
+    assert_eq!(available, Uint128::zero());
+
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        ExecuteMsg::Claim {
+            recipient: None,
+            amount: None,
+        },
+    )
+        .unwrap();
+    assert_eq!(res.messages.len(), 0);
+    assert_eq!(res.attributes[2].value, "0");
+    assert_eq!(res.attributes[3].value, "0");
+
+    // Register vesting account with future vesting
+    let vesting_accounts = vec![VestingAccount {
+        address: user1.to_string(),
+        schedules: vec![create_vesting_schedule(
+            env.block.time.seconds(),
+            Uint128::new(0),
+            Some(env.block.time.seconds() + 1000),
+            Some(amount),
+        )],
+    }];
+
+    let info = message_info(&vesting_token, &[]);
+    let cw20_msg = Cw20ReceiveMsg {
+        sender: owner.to_string(),
+        amount,
+        msg: to_json_binary(&Cw20HookMsg::RegisterVestingAccounts { vesting_accounts }).unwrap(),
+    };
+
+    execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        ExecuteMsg::Receive(cw20_msg),
+    )
+        .unwrap();
+
+    // Move time forward a bit but not to full vesting
+    env.block.time = env.block.time.plus_seconds(200);
+
+    // A user can claim tokens for newly created vesting schedule
+    let info = message_info(&user1, &[]);
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info.clone(),
+        ExecuteMsg::ForceClaim { recipient: None },
+    )
+        .unwrap();
+
+    assert_eq!(res.attributes[0].key, "action");
+    assert_eq!(res.attributes[0].value, "force_claim");
+    assert_eq!(res.attributes[3].key, "claimed_amount");
+    assert_eq!(res.attributes[3].value, "600");
+    assert_eq!(res.attributes[1].key, "address");
+    assert_eq!(res.attributes[1].value, user1.to_string());
+
+    // Owner can get remove vesting accounts and get unclaimed amount
+    let clawback_account = deps.api.addr_make("clawback");
+    let info = message_info(&owner, &[]);
+    let res = execute(
+        deps.as_mut(),
+        env,
+        info,
+        ExecuteMsg::ManagedExtension {
+            msg: ExecuteMsgManaged::RemoveVestingAccounts {
+                vesting_accounts: vec![user1.to_string()],
+                clawback_account: clawback_account.to_string(),
+            },
+        },
+    )
+        .unwrap();
+
+    assert_eq!(res.attributes[0].key, "action");
+    assert_eq!(res.attributes[0].value, "remove_vesting_accounts");
+    assert_eq!(res.messages.len(), 1);
+    match &res.messages[0].msg {
+        CosmosMsg::Wasm(WasmMsg::Execute { msg, .. }) => {
+            let transfer_msg: Cw20ExecuteMsg = from_json(msg).unwrap();
+            match transfer_msg {
+                Cw20ExecuteMsg::Transfer { amount, recipient } => {
+                    assert_eq!(amount, Uint128::new(800)); // 800 - the remaining of the users vesting
+                    assert_eq!(recipient, clawback_account.to_string());
+                }
+                _ => panic!("Expected Transfer message"),
+            }
+        }
+        _ => panic!("Expected Wasm message"),
+    }
 }
