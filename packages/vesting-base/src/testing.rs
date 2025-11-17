@@ -2698,7 +2698,29 @@ fn test_force_claim_tokens_multiple_schedules() {
         .unwrap();
 
     // Move time forward a bit but not to full vesting
-    env.block.time = env.block.time.plus_seconds(10);
+    env.block.time = env.block.time.plus_seconds(5);
+
+    // Сlaim tokens
+    let info = message_info(&user1, &[]);
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info.clone(),
+        ExecuteMsg::Claim {
+            recipient: None,
+            amount: None,
+        },
+    )
+        .unwrap();
+    assert_eq!(res.attributes[0].key, "action");
+    assert_eq!(res.attributes[0].value, "claim");
+    assert_eq!(res.attributes[1].key, "address");
+    assert_eq!(res.attributes[1].value, user1.to_string());
+    assert_eq!(res.attributes[3].key, "claimed_amount");
+    assert_eq!(res.attributes[3].value, "5");
+
+    // Move time forward a bit but not to full vesting
+    env.block.time = env.block.time.plus_seconds(5);
 
     // Force claim tokens
     let info = message_info(&user1, &[]);
@@ -2715,7 +2737,7 @@ fn test_force_claim_tokens_multiple_schedules() {
     assert_eq!(res.attributes[1].key, "address");
     assert_eq!(res.attributes[1].value, user1.to_string());
     assert_eq!(res.attributes[3].key, "claimed_amount");
-    assert_eq!(res.attributes[3].value, "55");
+    assert_eq!(res.attributes[3].value, "50");
 
     let vesting_info = vesting_info(true);
     let mut vesting_info = vesting_info.load(&deps.storage, info.sender.clone()).unwrap();
@@ -2728,7 +2750,7 @@ fn test_force_claim_tokens_multiple_schedules() {
             let transfer_msg: Cw20ExecuteMsg = from_json(msg).unwrap();
             match transfer_msg {
                 Cw20ExecuteMsg::Transfer { amount, .. } => {
-                    assert_eq!(amount, Uint128::new(55));
+                    assert_eq!(amount, Uint128::new(50));
                 }
                 _ => panic!("Expected Transfer message"),
             }
