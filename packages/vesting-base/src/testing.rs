@@ -2661,3 +2661,221 @@ fn test_force_claim_tokens_and_create_another_schedule_after() {
         _ => panic!("Expected Wasm message"),
     }
 }
+
+
+#[test]
+fn test_force_claim_tokens_multiple_schedules() {
+    let (mut deps, mut env, owner, _, vesting_token) = setup_contract_with_token();
+
+    let user1 = deps.api.addr_make("user1");
+    let amount = Uint128::new(100);
+
+    // Register vesting account with future vesting
+    let vesting_accounts = vec![VestingAccount {
+        address: user1.to_string(),
+        schedules: vec![create_vesting_schedule(
+            env.block.time.seconds(),
+            Uint128::new(0),
+            Some(env.block.time.seconds() + 100),
+            Some(amount),
+        )],
+    }];
+
+    let info = message_info(&vesting_token, &[]);
+    let cw20_msg = Cw20ReceiveMsg {
+        sender: owner.to_string(),
+        amount,
+        msg: to_json_binary(&Cw20HookMsg::RegisterVestingAccounts { vesting_accounts }).unwrap(),
+    };
+
+    execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        ExecuteMsg::Receive(cw20_msg),
+    )
+        .unwrap();
+
+    // Move time forward a bit but not to full vesting
+    env.block.time = env.block.time.plus_seconds(10);
+
+    // Force claim tokens
+    let info = message_info(&user1, &[]);
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info.clone(),
+        ExecuteMsg::ForceClaim { recipient: None },
+    )
+        .unwrap();
+
+    assert_eq!(res.attributes[0].key, "action");
+    assert_eq!(res.attributes[0].value, "force_claim");
+    assert_eq!(res.attributes[1].key, "address");
+    assert_eq!(res.attributes[1].value, user1.to_string());
+    assert_eq!(res.attributes[3].key, "claimed_amount");
+    assert_eq!(res.attributes[3].value, "55");
+
+    // Check that some amount was claimed (should be more than normal vesting due to force claim)
+    assert_eq!(res.messages.len(), 1);
+    match &res.messages[0].msg {
+        CosmosMsg::Wasm(WasmMsg::Execute { msg, .. }) => {
+            let transfer_msg: Cw20ExecuteMsg = from_json(msg).unwrap();
+            match transfer_msg {
+                Cw20ExecuteMsg::Transfer { amount, .. } => {
+                    assert_eq!(amount, Uint128::new(55));
+                }
+                _ => panic!("Expected Transfer message"),
+            }
+        }
+        _ => panic!("Expected Wasm message"),
+    }
+
+    // User hasn't anything to claim anymore
+    let available = from_json::<Uint128>(
+        &query(
+            deps.as_ref(),
+            env.clone(),
+            QueryMsg::AvailableAmount {
+                address: user1.to_string(),
+            },
+        )
+            .unwrap(),
+    )
+        .unwrap();
+    assert_eq!(available, Uint128::zero());
+
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        ExecuteMsg::Claim {
+            recipient: None,
+            amount: None,
+        },
+    )
+        .unwrap();
+    assert_eq!(res.messages.len(), 0);
+    assert_eq!(res.attributes[2].value, "0");
+    assert_eq!(res.attributes[3].value, "0");
+
+    env.block.time = env.block.time.plus_seconds(20);
+
+    // Register vesting account with future vesting
+    let vesting_accounts = vec![VestingAccount {
+        address: user1.to_string(),
+        schedules: vec![create_vesting_schedule(
+            env.block.time.seconds(),
+            Uint128::new(0),
+            Some(env.block.time.seconds() + 100),
+            Some(amount),
+        )],
+    }];
+
+    let info = message_info(&vesting_token, &[]);
+    let cw20_msg = Cw20ReceiveMsg {
+        sender: owner.to_string(),
+        amount,
+        msg: to_json_binary(&Cw20HookMsg::RegisterVestingAccounts { vesting_accounts }).unwrap(),
+    };
+
+    execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        ExecuteMsg::Receive(cw20_msg),
+    )
+        .unwrap();
+
+    // Move time forward a bit but not to full vesting
+    env.block.time = env.block.time.plus_seconds(60);
+
+    // User has 200 tokens to claim from newly created vesting schedule
+    let available = from_json::<Uint128>(
+        &query(
+            deps.as_ref(),
+            env.clone(),
+            QueryMsg::AvailableAmount {
+                address: user1.to_string(),
+            },
+        )
+            .unwrap(),
+    )
+        .unwrap();
+    assert_eq!(available, Uint128::from(60u128));
+
+    // A user can't claim more tokens than it has
+    let info = message_info(&user1, &[]);
+    assert_eq!(execute(
+        deps.as_mut(),
+        env.clone(),
+        info.clone(),
+        ExecuteMsg::Claim { amount: Some(Uint128::new(100u128)), recipient: None },
+    ).err().unwrap(), AmountIsNotAvailable {});
+
+    // A user can claim tokens for newly created vesting schedule
+    let info = message_info(&user1, &[]);
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info.clone(),
+        ExecuteMsg::Claim { amount: None, recipient: None },
+    ).unwrap();
+
+    assert_eq!(res.attributes[0].key, "action");
+    assert_eq!(res.attributes[0].value, "claim");
+    assert_eq!(res.attributes[3].key, "claimed_amount");
+    assert_eq!(res.attributes[3].value, "60");
+    assert_eq!(res.attributes[1].key, "address");
+    assert_eq!(res.attributes[1].value, user1.to_string());
+
+    // A user can force claim tokens for newly created vesting schedule
+    let info = message_info(&user1, &[]);
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info.clone(),
+        ExecuteMsg::ForceClaim { recipient: None },
+    )
+        .unwrap();
+
+    assert_eq!(res.attributes[0].key, "action");
+    assert_eq!(res.attributes[0].value, "force_claim");
+    assert_eq!(res.attributes[3].key, "claimed_amount");
+    assert_eq!(res.attributes[3].value, "20");
+    assert_eq!(res.attributes[1].key, "address");
+    assert_eq!(res.attributes[1].value, user1.to_string());
+
+    // Owner can get remove vesting accounts and get unclaimed amount
+    let clawback_account = deps.api.addr_make("clawback");
+    let info = message_info(&owner, &[]);
+    let res = execute(
+        deps.as_mut(),
+        env,
+        info,
+        ExecuteMsg::ManagedExtension {
+            msg: ExecuteMsgManaged::RemoveVestingAccounts {
+                vesting_accounts: vec![user1.to_string()],
+                clawback_account: clawback_account.to_string(),
+            },
+        },
+    )
+        .unwrap();
+
+    assert_eq!(res.attributes[0].key, "action");
+    assert_eq!(res.attributes[0].value, "remove_vesting_accounts");
+    assert_eq!(res.messages.len(), 1);
+    match &res.messages[0].msg {
+        CosmosMsg::Wasm(WasmMsg::Execute { msg, .. }) => {
+            let transfer_msg: Cw20ExecuteMsg = from_json(msg).unwrap();
+            match transfer_msg {
+                Cw20ExecuteMsg::Transfer { amount, recipient } => {
+                    assert_eq!(amount, Uint128::new(65)); // 65 - the remaining of the users vesting
+                    assert_eq!(recipient, clawback_account.to_string());
+                }
+                _ => panic!("Expected Transfer message"),
+            }
+        }
+        _ => panic!("Expected Wasm message"),
+    }
+}
