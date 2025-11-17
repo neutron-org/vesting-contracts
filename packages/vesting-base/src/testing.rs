@@ -2795,7 +2795,7 @@ fn test_force_claim_tokens_multiple_schedules() {
     // Move time forward a bit but not to full vesting
     env.block.time = env.block.time.plus_seconds(60);
 
-    // User has 200 tokens to claim from newly created vesting schedule
+    // User has 60 tokens to claim from newly created vesting schedule
     let available = from_json::<Uint128>(
         &query(
             deps.as_ref(),
@@ -2834,6 +2834,37 @@ fn test_force_claim_tokens_multiple_schedules() {
     assert_eq!(res.attributes[1].key, "address");
     assert_eq!(res.attributes[1].value, user1.to_string());
 
+    // User has 0 tokens to claim from newly created vesting schedule
+    let available = from_json::<Uint128>(
+        &query(
+            deps.as_ref(),
+            env.clone(),
+            QueryMsg::AvailableAmount {
+                address: user1.to_string(),
+            },
+        )
+            .unwrap(),
+    )
+        .unwrap();
+    assert_eq!(available, Uint128::from(0u128));
+
+    // Move time forward a bit but not to full vesting
+    env.block.time = env.block.time.plus_seconds(15);
+
+    // User has 15 more tokens to claim from newly created vesting schedule
+    let available = from_json::<Uint128>(
+        &query(
+            deps.as_ref(),
+            env.clone(),
+            QueryMsg::AvailableAmount {
+                address: user1.to_string(),
+            },
+        )
+            .unwrap(),
+    )
+        .unwrap();
+    assert_eq!(available, Uint128::from(15u128));
+
     // A user can force claim tokens for newly created vesting schedule
     let info = message_info(&user1, &[]);
     let res = execute(
@@ -2847,7 +2878,7 @@ fn test_force_claim_tokens_multiple_schedules() {
     assert_eq!(res.attributes[0].key, "action");
     assert_eq!(res.attributes[0].value, "force_claim");
     assert_eq!(res.attributes[3].key, "claimed_amount");
-    assert_eq!(res.attributes[3].value, "20");
+    assert_eq!(res.attributes[3].value, "27");
     assert_eq!(res.attributes[1].key, "address");
     assert_eq!(res.attributes[1].value, user1.to_string());
 
@@ -2875,7 +2906,7 @@ fn test_force_claim_tokens_multiple_schedules() {
             let transfer_msg: Cw20ExecuteMsg = from_json(msg).unwrap();
             match transfer_msg {
                 Cw20ExecuteMsg::Transfer { amount, recipient } => {
-                    assert_eq!(amount, Uint128::new(65)); // 65 - the remaining of the users vesting
+                    assert_eq!(amount, Uint128::new(58)); // 58 - the remaining of the users vesting
                     assert_eq!(recipient, clawback_account.to_string());
                 }
                 _ => panic!("Expected Transfer message"),
