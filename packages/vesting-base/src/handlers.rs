@@ -408,6 +408,8 @@ fn compute_available_amount(
     let mut available_amount: Uint128 = Uint128::zero();
     for sch in &vesting_info.schedules {
         if sch.start_point.time > current_time || sch.disabled {
+            // for accounting purposes, add the amount that was forced claimed (released), to make math correct
+            available_amount = available_amount.checked_add(sch.force_claimed)?;
             continue;
         }
 
@@ -426,13 +428,9 @@ fn compute_available_amount(
         }
     }
 
-    if available_amount < vesting_info.released_amount {
-        Ok(Uint128::zero())
-    } else {
-        available_amount
-            .checked_sub(vesting_info.released_amount)
-            .map_err(StdError::from)
-    }
+    available_amount
+        .checked_sub(vesting_info.released_amount)
+        .map_err(StdError::from)
 }
 
 /// Computes the amount of the vested and yet unclaimed tokens plus 50% of the unvested ones
@@ -452,6 +450,8 @@ fn compute_available_amount_to_force_claim(
 
     for sch in &mut vesting_info.schedules {
         if sch.disabled {
+            // for accounting purposes, add the amount that was forced claimed (released), to make math correct
+            available_amount = available_amount.checked_add(sch.force_claimed)?;
             continue;
         }
 
@@ -465,6 +465,7 @@ fn compute_available_amount_to_force_claim(
 
                 // Disable the end_point — the schedule becomes one-time unlock
                 sch.disabled = true;
+                sch.force_claimed = release_amount;
 
                 // Add to the total claimable amount
                 available_amount = available_amount.checked_add(release_amount)?;
@@ -506,16 +507,13 @@ fn compute_available_amount_to_force_claim(
 
         // Add to the total claimable amount
         available_amount = available_amount.checked_add(release_amount)?;
+        sch.force_claimed = release_amount;
     }
 
     // Subtract already claimed (released) tokens from the total available
-    if available_amount < vesting_info.released_amount {
-        Ok(Uint128::zero())
-    } else {
-        available_amount
-            .checked_sub(vesting_info.released_amount)
-            .map_err(StdError::from)
-    }
+    available_amount
+        .checked_sub(vesting_info.released_amount)
+        .map_err(StdError::from)
 }
 
 fn claim_tokens(

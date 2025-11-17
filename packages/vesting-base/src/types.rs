@@ -63,6 +63,8 @@ pub struct VestingSchedule {
     pub end_point: Option<VestingSchedulePoint>,
     /// Is the schedule disabled (cannot be claimed by a user) or not
     pub disabled: bool,
+    // How many tokens have been force claimed by a user.
+    pub force_claimed: Uint128,
 }
 
 /// This structure stores the parameters used to create a vesting schedule.
