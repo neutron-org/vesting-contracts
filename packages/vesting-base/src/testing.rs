@@ -1,5 +1,6 @@
 use crate::asset::{native_asset_info, token_asset_info};
 use crate::builder::VestingBaseBuilder;
+use crate::error::ContractError::AmountIsNotAvailable;
 use crate::error::{ext_unsupported_err, ContractError};
 use crate::handlers::{execute, query};
 use crate::msg::{
@@ -2585,7 +2586,32 @@ fn test_force_claim_tokens_and_create_another_schedule_after() {
         .unwrap();
     assert_eq!(available, Uint128::from(200u128));
 
+    // A user can't claim more tokens than it has
+    let info = message_info(&user1, &[]);
+    assert_eq!(execute(
+        deps.as_mut(),
+        env.clone(),
+        info.clone(),
+        ExecuteMsg::Claim { amount: Some(Uint128::new(500u128)), recipient: None },
+    ).err().unwrap(), AmountIsNotAvailable {});
+
     // A user can claim tokens for newly created vesting schedule
+    let info = message_info(&user1, &[]);
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info.clone(),
+        ExecuteMsg::Claim { amount: None, recipient: None },
+    ).unwrap();
+
+    assert_eq!(res.attributes[0].key, "action");
+    assert_eq!(res.attributes[0].value, "claim");
+    assert_eq!(res.attributes[3].key, "claimed_amount");
+    assert_eq!(res.attributes[3].value, "200");
+    assert_eq!(res.attributes[1].key, "address");
+    assert_eq!(res.attributes[1].value, user1.to_string());
+
+    // A user can force claim tokens for newly created vesting schedule
     let info = message_info(&user1, &[]);
     let res = execute(
         deps.as_mut(),
@@ -2598,7 +2624,7 @@ fn test_force_claim_tokens_and_create_another_schedule_after() {
     assert_eq!(res.attributes[0].key, "action");
     assert_eq!(res.attributes[0].value, "force_claim");
     assert_eq!(res.attributes[3].key, "claimed_amount");
-    assert_eq!(res.attributes[3].value, "600");
+    assert_eq!(res.attributes[3].value, "400");
     assert_eq!(res.attributes[1].key, "address");
     assert_eq!(res.attributes[1].value, user1.to_string());
 
