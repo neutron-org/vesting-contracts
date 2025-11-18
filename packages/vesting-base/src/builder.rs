@@ -31,7 +31,7 @@ impl VestingBaseBuilder {
         self
     }
 
-    /// Validates the inputs and initialises the created contract state.
+    /// Validates the inputs and initializes the created contract state.
     pub fn build(&self, deps: DepsMut, owner: String, token_info_manager: String) -> StdResult<()> {
         let owner = deps.api.addr_validate(&owner)?;
         CONFIG.save(

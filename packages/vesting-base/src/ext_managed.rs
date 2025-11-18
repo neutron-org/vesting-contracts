@@ -1,8 +1,8 @@
+use crate::asset::AssetInfoExt;
 use crate::error::{ext_unsupported_err, ContractError};
 use crate::handlers::get_vesting_token;
 use crate::msg::{ExecuteMsgManaged, QueryMsgManaged};
 use crate::state::{vesting_info, vesting_state, CONFIG};
-use astroport::asset::AssetInfoExt;
 use cosmwasm_std::{
     attr, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, SubMsg, Uint128,
 };

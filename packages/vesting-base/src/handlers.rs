@@ -1,3 +1,5 @@
+use crate::asset::{addr_opt_validate, token_asset_info, AssetInfo, AssetInfoExt};
+use crate::common::{claim_ownership, drop_ownership_proposal, propose_new_owner};
 use crate::error::ContractError;
 use crate::ext_historical::{handle_execute_historical_msg, handle_query_historical_msg};
 use crate::ext_managed::{handle_execute_managed_msg, handle_query_managed_msg};
@@ -9,8 +11,6 @@ use crate::types::{
     Config, OrderBy, VestingAccount, VestingAccountResponse, VestingAccountsResponse, VestingInfo,
     VestingSchedule, VestingState,
 };
-use astroport::asset::{addr_opt_validate, token_asset_info, AssetInfo, AssetInfoExt};
-use astroport::common::{claim_ownership, drop_ownership_proposal, propose_new_owner};
 use cosmwasm_std::{
     attr, from_json, to_json_binary, Addr, Binary, Deps, DepsMut, Env, MessageInfo, Response,
     StdError, StdResult, Storage, SubMsg, Uint128,
@@ -27,6 +27,7 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::Claim { recipient, amount } => claim(deps, env, info, recipient, amount),
+        ExecuteMsg::ForceClaim { recipient } => force_claim(deps, env, info, recipient),
         ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::RegisterVestingAccounts { vesting_accounts } => {
             let config = CONFIG.load(deps.storage)?;
@@ -34,11 +35,11 @@ pub fn execute(
 
             match &vesting_token {
                 AssetInfo::NativeToken { denom }
-                    if is_sender_whitelisted(deps.storage, &config, &info.sender) =>
-                {
-                    let amount = must_pay(&info, denom)?;
-                    register_vesting_accounts(deps, vesting_accounts, amount, env.block.height)
-                }
+                if is_sender_whitelisted(deps.storage, &config, &info.sender) =>
+                    {
+                        let amount = must_pay(&info, denom)?;
+                        register_vesting_accounts(deps, vesting_accounts, amount, env.block.height)
+                    }
                 _ => Err(ContractError::Unauthorized {}),
             }
         }
@@ -54,7 +55,7 @@ pub fn execute(
                 config.owner,
                 &OWNERSHIP_PROPOSAL,
             )
-            .map_err(Into::into)
+                .map_err(Into::into)
         }
         ExecuteMsg::DropOwnershipProposal {} => {
             let config: Config = CONFIG.load(deps.storage)?;
@@ -71,7 +72,7 @@ pub fn execute(
 
                 Ok(())
             })
-            .map_err(Into::into)
+                .map_err(Into::into)
         }
         ExecuteMsg::SetVestingToken { vesting_token } => {
             set_vesting_token(deps, env, info, vesting_token)
@@ -196,58 +197,36 @@ fn claim(
     recipient: Option<String>,
     amount: Option<Uint128>,
 ) -> Result<Response, ContractError> {
-    let config = CONFIG.load(deps.storage)?;
-    let vesting_token = get_vesting_token(&config)?;
-    let vesting_info = vesting_info(config.extensions.historical);
-    let mut sender_vesting_info = vesting_info.load(deps.storage, info.sender.clone())?;
+    claim_tokens(
+        deps,
+        env,
+        info,
+        recipient,
+        amount,
+        compute_available_amount,
+        "claim",
+    )
+}
 
-    let available_amount =
-        compute_available_amount(env.block.time.seconds(), &sender_vesting_info)?;
-
-    let claim_amount = if let Some(a) = amount {
-        if a > available_amount {
-            return Err(ContractError::AmountIsNotAvailable {});
-        };
-        a
-    } else {
-        available_amount
-    };
-
-    let mut response = Response::new();
-
-    if !claim_amount.is_zero() {
-        let transfer_msg = vesting_token.with_balance(claim_amount).into_msg(
-            &deps.querier,
-            recipient.unwrap_or_else(|| info.sender.to_string()),
-        )?;
-        response = response.add_submessage(SubMsg::new(transfer_msg));
-
-        sender_vesting_info.released_amount = sender_vesting_info
-            .released_amount
-            .checked_add(claim_amount)?;
-        vesting_info.save(
-            deps.storage,
-            info.sender.clone(),
-            &sender_vesting_info,
-            env.block.height,
-        )?;
-        vesting_state(config.extensions.historical).update::<_, ContractError>(
-            deps.storage,
-            env.block.height,
-            |s| {
-                let mut state = s.ok_or(ContractError::AmountIsNotAvailable {})?;
-                state.total_released = state.total_released.checked_add(claim_amount)?;
-                Ok(state)
-            },
-        )?;
-    };
-
-    Ok(response.add_attributes(vec![
-        attr("action", "claim"),
-        attr("address", &info.sender),
-        attr("available_amount", available_amount),
-        attr("claimed_amount", claim_amount),
-    ]))
+/// Stops the vesting, claims the vested tokens plus 50% of the unvested ones
+/// and transfers them to a recipient.
+///
+/// * **recipient** vesting recipient for which to claim tokens.
+fn force_claim(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    recipient: Option<String>,
+) -> Result<Response, ContractError> {
+    claim_tokens(
+        deps,
+        env,
+        info,
+        recipient,
+        None,
+        compute_available_amount_to_force_claim,
+        "force_claim",
+    )
 }
 
 pub(crate) fn set_vesting_token(
@@ -373,8 +352,8 @@ fn query_vesting_available_amount(deps: Deps, env: Env, address: String) -> StdR
     let address = deps.api.addr_validate(&address)?;
 
     let config = CONFIG.load(deps.storage)?;
-    let info = vesting_info(config.extensions.historical).load(deps.storage, address)?;
-    let available_amount = compute_available_amount(env.block.time.seconds(), &info)?;
+    let mut info = vesting_info(config.extensions.historical).load(deps.storage, address)?;
+    let available_amount = compute_available_amount(env.block.time.seconds(), &mut info)?;
     Ok(available_amount)
 }
 
@@ -383,7 +362,7 @@ pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, 
     Ok(Response::default())
 }
 
-fn is_sender_whitelisted(store: &mut dyn Storage, config: &Config, sender: &Addr) -> bool {
+fn is_sender_whitelisted(store: &dyn Storage, config: &Config, sender: &Addr) -> bool {
     if *sender == config.owner {
         return true;
     }
@@ -422,10 +401,15 @@ pub fn assert_vesting_schedules(
 ///
 /// * **vesting_info** vesting schedules for which to compute the amount of tokens
 /// that are vested and can be claimed by the recipient.
-fn compute_available_amount(current_time: u64, vesting_info: &VestingInfo) -> StdResult<Uint128> {
+fn compute_available_amount(
+    current_time: u64,
+    vesting_info: &mut VestingInfo,
+) -> StdResult<Uint128> {
     let mut available_amount: Uint128 = Uint128::zero();
     for sch in &vesting_info.schedules {
-        if sch.start_point.time > current_time {
+        if sch.start_point.time > current_time || sch.disabled {
+            // for accounting purposes, add the amount that was forced claimed (released), to make math correct
+            available_amount = available_amount.checked_add(sch.force_claimed)?;
             continue;
         }
 
@@ -447,4 +431,149 @@ fn compute_available_amount(current_time: u64, vesting_info: &VestingInfo) -> St
     available_amount
         .checked_sub(vesting_info.released_amount)
         .map_err(StdError::from)
+}
+
+/// Computes the amount of the vested and yet unclaimed tokens plus 50% of the unvested ones
+/// for a specific vesting recipient and stops the vesting.
+/// Returns the computed amount if the operation is successful.
+///
+/// * **current_time** timestamp from which to start querying for vesting schedules.
+///
+/// * **vesting_info** vesting schedules for which to compute the amount of tokens
+/// that will be claimed by the recipient.
+fn compute_available_amount_to_force_claim(
+    current_time: u64,
+    vesting_info: &mut VestingInfo,
+) -> StdResult<Uint128> {
+    let mut available_amount = Uint128::zero();
+    let half = Uint128::new(2);
+
+    for sch in &mut vesting_info.schedules {
+        if sch.disabled {
+            // for accounting purposes, add the amount that was forced claimed (released), to make math correct
+            available_amount = available_amount.checked_add(sch.force_claimed)?;
+            continue;
+        }
+
+        // Start with the initial amount at the start_point
+        let mut release_amount = sch.start_point.amount;
+
+        if let Some(end_point) = &sch.end_point {
+            // If vesting hasn't started yet, force unlock 50% of the end_point amount
+            if current_time < sch.start_point.time {
+                release_amount = end_point.amount.checked_div(half)?;
+
+                // Disable the end_point — the schedule becomes one-time unlock
+                sch.disabled = true;
+                sch.force_claimed = release_amount;
+
+                // Add to the total claimable amount
+                available_amount = available_amount.checked_add(release_amount)?;
+
+                continue;
+            }
+
+            // Calculate how much time has passed since start
+            let passed_time = current_time.min(end_point.time) - sch.start_point.time;
+            let time_period = end_point.time - sch.start_point.time;
+
+            // Сalculate how many tokens have been unlocked over time
+            if passed_time != 0 && time_period != 0 {
+                let additional_amount = end_point
+                    .amount
+                    .checked_sub(sch.start_point.amount)?
+                    .multiply_ratio(passed_time, time_period);
+
+                release_amount = release_amount.checked_add(additional_amount)?;
+            }
+
+            // If vesting is still ongoing — apply forced unlock (50% of remaining)
+            if current_time < end_point.time {
+                let remain_amount = end_point
+                    .amount
+                    .checked_sub(release_amount)?
+                    .checked_div(half)?;
+
+                release_amount = release_amount.checked_add(remain_amount)?;
+
+                sch.disabled = true;
+            }
+        } else if current_time < sch.start_point.time {
+            // If vesting hasn’t started yet, force unlock 50% of the start_point amount
+            release_amount = release_amount.checked_div(half)?;
+
+            sch.disabled = true;
+        }
+
+        // Add to the total claimable amount
+        available_amount = available_amount.checked_add(release_amount)?;
+        sch.force_claimed = release_amount;
+    }
+
+    // Subtract already claimed (released) tokens from the total available
+    available_amount
+        .checked_sub(vesting_info.released_amount)
+        .map_err(StdError::from)
+}
+
+fn claim_tokens(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    recipient: Option<String>,
+    amount: Option<Uint128>,
+    func: fn(u64, &mut VestingInfo) -> StdResult<Uint128>,
+    action: &str,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let vesting_token = get_vesting_token(&config)?;
+    let vesting_info = vesting_info(config.extensions.historical);
+    let mut sender_vesting_info = vesting_info.load(deps.storage, info.sender.clone())?;
+
+    let available_amount = func(env.block.time.seconds(), &mut sender_vesting_info)?;
+
+    let claim_amount = if let Some(a) = amount {
+        if a > available_amount {
+            return Err(ContractError::AmountIsNotAvailable {});
+        };
+        a
+    } else {
+        available_amount
+    };
+
+    let mut response = Response::new();
+
+    if !claim_amount.is_zero() {
+        let transfer_msg = vesting_token.with_balance(claim_amount).into_msg(
+            &deps.querier,
+            recipient.unwrap_or_else(|| info.sender.to_string()),
+        )?;
+        response = response.add_submessage(SubMsg::new(transfer_msg));
+
+        sender_vesting_info.released_amount = sender_vesting_info
+            .released_amount
+            .checked_add(claim_amount)?;
+        vesting_info.save(
+            deps.storage,
+            info.sender.clone(),
+            &sender_vesting_info,
+            env.block.height,
+        )?;
+        vesting_state(config.extensions.historical).update::<_, ContractError>(
+            deps.storage,
+            env.block.height,
+            |s| {
+                let mut state = s.ok_or(ContractError::AmountIsNotAvailable {})?;
+                state.total_released = state.total_released.checked_add(claim_amount)?;
+                Ok(state)
+            },
+        )?;
+    };
+
+    Ok(response.add_attributes(vec![
+        attr("action", action),
+        attr("address", &info.sender),
+        attr("available_amount", available_amount),
+        attr("claimed_amount", claim_amount),
+    ]))
 }

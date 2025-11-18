@@ -1,5 +1,5 @@
+use crate::common::OwnershipProposal;
 use crate::types::{Config, OrderBy, VestingInfo, VestingState};
-use astroport::common::OwnershipProposal;
 use cosmwasm_std::{Addr, Deps, StdResult};
 use cw_storage_plus::{Bound, Item, Map, SnapshotItem, SnapshotMap, Strategy};
 
@@ -31,14 +31,14 @@ pub(crate) const VESTING_INFO_HISTORICAL: SnapshotMap<Addr, VestingInfo> = Snaps
     Strategy::EveryBlock,
 );
 
-pub fn vesting_state(historical: bool) -> SnapshotItem<'static, VestingState> {
+pub fn vesting_state(historical: bool) -> SnapshotItem<VestingState> {
     if historical {
         return VESTING_STATE_HISTORICAL;
     }
     VESTING_STATE
 }
 
-pub fn vesting_info(historical: bool) -> SnapshotMap<'static, Addr, VestingInfo> {
+pub fn vesting_info(historical: bool) -> SnapshotMap<Addr, VestingInfo> {
     if historical {
         return VESTING_INFO_HISTORICAL;
     }
@@ -114,7 +114,7 @@ mod testing {
             None,
             Some(OrderBy::Asc),
         )
-        .unwrap();
+            .unwrap();
         assert_eq!(
             res,
             vec![
@@ -129,7 +129,7 @@ mod testing {
             Some(1),
             Some(OrderBy::Asc),
         )
-        .unwrap();
+            .unwrap();
         assert_eq!(res, vec![(Addr::unchecked("address3"), vi_mock.clone())]);
 
         let res = read_vesting_infos(
@@ -138,7 +138,7 @@ mod testing {
             None,
             Some(OrderBy::Desc),
         )
-        .unwrap();
+            .unwrap();
         assert_eq!(
             res,
             vec![
@@ -153,7 +153,7 @@ mod testing {
             Some(1),
             Some(OrderBy::Desc),
         )
-        .unwrap();
+            .unwrap();
         assert_eq!(res, vec![(Addr::unchecked("address2"), vi_mock.clone())]);
     }
 }

@@ -1,24 +1,10 @@
 use cosmwasm_schema::cw_serde;
-use std::fmt;
-
-use crate::factory::PairType;
-use crate::pair::QueryMsg as PairQueryMsg;
-use crate::querier::{
-    query_balance, query_token_balance, query_token_precision, query_token_symbol,
-};
 use cosmwasm_std::{
-    to_json_binary, Addr, Api, BankMsg, Coin, ConversionOverflowError, CosmosMsg, Decimal256,
-    Fraction, MessageInfo, QuerierWrapper, StdError, StdResult, Uint128, Uint256, WasmMsg,
+    to_json_binary, Addr, Api, BankMsg, Coin, CosmosMsg, Decimal256, Fraction, MessageInfo,
+    QuerierWrapper, StdError, StdResult, Uint128, Uint256, WasmMsg,
 };
-use cw20::{Cw20ExecuteMsg, Cw20QueryMsg, MinterResponse};
-use itertools::Itertools;
-
-/// UST token denomination
-pub const UUSD_DENOM: &str = "uusd";
-/// LUNA token denomination
-pub const ULUNA_DENOM: &str = "uluna";
-/// Minimum initial LP share
-pub const MINIMUM_LIQUIDITY_AMOUNT: Uint128 = Uint128::new(1_000);
+use cw20::Cw20ExecuteMsg;
+use std::fmt;
 
 /// This enum describes a Terra asset (native or CW20).
 #[cw_serde]
@@ -128,7 +114,7 @@ impl Asset {
 /// ## Examples
 /// ```
 /// # use cosmwasm_std::Addr;
-/// # use astroport::asset::AssetInfo::{NativeToken, Token};
+/// # use vesting_base::asset::AssetInfo::{NativeToken, Token};
 /// Token { contract_addr: Addr::unchecked("stake...") };
 /// NativeToken { denom: String::from("uluna") };
 /// ```
@@ -157,27 +143,6 @@ impl AssetInfo {
             AssetInfo::NativeToken { .. } => true,
             AssetInfo::Token { .. } => false,
         }
-    }
-
-    /// Returns the balance of token in a pool.
-    ///
-    /// * **pool_addr** is the address of the contract whose token balance we check.
-    pub fn query_pool(
-        &self,
-        querier: &QuerierWrapper,
-        pool_addr: impl Into<String>,
-    ) -> StdResult<Uint128> {
-        match self {
-            AssetInfo::Token { contract_addr, .. } => {
-                query_token_balance(querier, contract_addr, pool_addr)
-            }
-            AssetInfo::NativeToken { denom } => query_balance(querier, pool_addr, denom),
-        }
-    }
-
-    /// Returns the number of decimals that a token has.
-    pub fn decimals(&self, querier: &QuerierWrapper, factory_address: &Addr) -> StdResult<u8> {
-        query_token_precision(querier, self, factory_address)
     }
 
     /// Returns **true** if the calling token is the same as the token specified in the input parameters.
@@ -226,66 +191,6 @@ impl AssetInfo {
     }
 }
 
-/// This structure stores the main parameters for an Astroport pair
-#[cw_serde]
-pub struct PairInfo {
-    /// Asset information for the assets in the pool
-    pub asset_infos: Vec<AssetInfo>,
-    /// Pair contract address
-    pub contract_addr: Addr,
-    /// Pair LP token address
-    pub liquidity_token: Addr,
-    /// The pool type (xyk, stableswap etc) available in [`PairType`]
-    pub pair_type: PairType,
-}
-
-impl PairInfo {
-    /// Returns the balance for each asset in the pool.
-    ///
-    /// * **contract_addr** is pair's pool address.
-    pub fn query_pools(
-        &self,
-        querier: &QuerierWrapper,
-        contract_addr: impl Into<String>,
-    ) -> StdResult<Vec<Asset>> {
-        let contract_addr = contract_addr.into();
-        self.asset_infos
-            .iter()
-            .map(|asset_info| {
-                Ok(Asset {
-                    info: asset_info.clone(),
-                    amount: asset_info.query_pool(querier, &contract_addr)?,
-                })
-            })
-            .collect()
-    }
-
-    /// Returns the balance for each asset in the pool in decimal.
-    ///
-    /// * **contract_addr** is pair's pool address.
-    pub fn query_pools_decimal(
-        &self,
-        querier: &QuerierWrapper,
-        contract_addr: impl Into<String>,
-        factory_address: &Addr,
-    ) -> StdResult<Vec<DecimalAsset>> {
-        let contract_addr = contract_addr.into();
-        self.asset_infos
-            .iter()
-            .map(|asset_info| {
-                Ok(DecimalAsset {
-                    info: asset_info.clone(),
-                    amount: Decimal256::from_atomics(
-                        asset_info.query_pool(querier, &contract_addr)?,
-                        asset_info.decimals(querier, factory_address)?.into(),
-                    )
-                    .map_err(|_| StdError::generic_err("Decimal256RangeExceeded"))?,
-                })
-            })
-            .collect()
-    }
-}
-
 /// Returns a lowercased, validated address upon success.
 pub fn addr_validate_to_lower(api: &dyn Api, addr: impl Into<String>) -> StdResult<Addr> {
     let addr = addr.into();
@@ -303,29 +208,6 @@ pub fn addr_opt_validate(api: &dyn Api, addr: &Option<String>) -> StdResult<Opti
     addr.as_ref()
         .map(|addr| addr_validate_to_lower(api, addr))
         .transpose()
-}
-
-const TOKEN_SYMBOL_MAX_LENGTH: usize = 4;
-
-/// Returns a formatted LP token name
-pub fn format_lp_token_name(
-    asset_infos: &[AssetInfo],
-    querier: &QuerierWrapper,
-) -> StdResult<String> {
-    let mut short_symbols: Vec<String> = vec![];
-    for asset_info in asset_infos {
-        let short_symbol = match &asset_info {
-            AssetInfo::NativeToken { denom } => {
-                denom.chars().take(TOKEN_SYMBOL_MAX_LENGTH).collect()
-            }
-            AssetInfo::Token { contract_addr } => {
-                let token_symbol = query_token_symbol(querier, contract_addr)?;
-                token_symbol.chars().take(TOKEN_SYMBOL_MAX_LENGTH).collect()
-            }
-        };
-        short_symbols.push(short_symbol);
-    }
-    Ok(format!("{}-LP", short_symbols.iter().join("-")).to_uppercase())
 }
 
 /// Returns an [`Asset`] object representing a native token and an amount of tokens.
@@ -360,18 +242,6 @@ pub fn native_asset_info(denom: String) -> AssetInfo {
 /// Returns an [`AssetInfo`] object representing the address of a token contract.
 pub fn token_asset_info(contract_addr: Addr) -> AssetInfo {
     AssetInfo::Token { contract_addr }
-}
-
-/// Returns [`PairInfo`] by specified pool address.
-///
-/// * **pool_addr** address of the pool.
-pub fn pair_info_by_pool(querier: &QuerierWrapper, pool: impl Into<String>) -> StdResult<PairInfo> {
-    let minter_info: MinterResponse = querier.query_wasm_smart(pool, &Cw20QueryMsg::Minter {})?;
-
-    let pair_info: PairInfo =
-        querier.query_wasm_smart(minter_info.minter, &PairQueryMsg::Pair {})?;
-
-    Ok(pair_info)
 }
 
 /// Checks swap parameters.
@@ -435,13 +305,11 @@ impl Decimal256Ext for Decimal256 {
     fn to_uint128_with_precision(&self, precision: impl Into<u32>) -> StdResult<Uint128> {
         let value = self.atomics();
         let precision = precision.into();
+        let converted = value.checked_div(10u128.pow(self.decimal_places() - precision).into())?;
 
-        value
-            .checked_div(10u128.pow(self.decimal_places() - precision).into())?
+        converted
             .try_into()
-            .map_err(|o: ConversionOverflowError| {
-                StdError::generic_err(format!("Error converting {}", o.value))
-            })
+            .map_err(|_| StdError::generic_err(format!("Error converting {}", converted)))
     }
 
     fn to_uint256_with_precision(&self, precision: impl Into<u32>) -> StdResult<Uint256> {

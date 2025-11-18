@@ -1,7 +1,7 @@
+use crate::asset::AssetInfo;
 use crate::types::{
     Config, OrderBy, VestingAccount, VestingAccountResponse, VestingAccountsResponse, VestingState,
 };
-use astroport::asset::AssetInfo;
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Addr, Binary, Uint128};
 use cw20::Cw20ReceiveMsg;
@@ -15,6 +15,11 @@ pub enum ExecuteMsg {
         recipient: Option<String>,
         /// The amount of tokens to claim
         amount: Option<Uint128>,
+    },
+    /// Stops the vesting, claims the vested tokens plus 50% of the unvested ones and transfers them to a recipient
+    ForceClaim {
+        /// The address that receives the vested tokens
+        recipient: Option<String>,
     },
     /// Receives a message of type [`Cw20ReceiveMsg`] and processes it depending on the received template
     Receive(Cw20ReceiveMsg),

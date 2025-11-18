@@ -1,4 +1,6 @@
+pub mod asset;
 pub mod builder;
+pub mod common;
 pub mod error;
 pub mod handlers;
 pub mod msg;
